@@ -104,7 +104,7 @@
          sources (HDMI 1, HDMI 2, AV, the tuner) through its own provider instead. true: show those in the
          Inputs menu and switch with com.skyworth.tv, ahead of the source panel above, which stays as the
          fallback. See CoocaaSources and examples/skyworth-7s60-a5. -->
-    <bool name="coocaa_sources">false</bool>
+    <bool name="coocaa_sources">true</bool>
 
     <!-- Inputs menu: HDMI and AV rows normally open with ACTION_VIEW on the input's channel URI, which the
          Live TV app handles. Where nothing answers that, this action is sent with the same URI instead
@@ -241,7 +241,7 @@
          there. HomeKeyService (HOME_KEY_SERVICE=1) then takes the Home key itself and opens Home on release. Needs
          key_filter, so held keys such as Volume Up/Down stop repeating (confirmed on that Philips; single presses
          still step). A theme's config.json can set it too. Off by default. -->
-    <bool name="home_long_press_home">false</bool>
+    <bool name="home_long_press_home">true</bool>
 
     <!-- Show the Solar Hijri (Shamsi) date used in Iran and Afghanistan, e.g. "27 Mehr 1405", above the
          Gregorian date. -->
@@ -285,7 +285,7 @@
     <bool name="top_menu">false</bool>
     <!-- A direct Launcher settings action instead of TV Settings in the header (or top_menu).
          Off by default; a theme can set "launcher_settings_button": true. -->
-    <bool name="launcher_settings_button">false</bool>
+    <bool name="launcher_settings_button">true</bool>
     <!-- The dock band as light frosted glass, like the Inputs, Wi-Fi and Settings pills, so a sky or wallpaper shows
          through it. false (the default) keeps the solid near-black band, or the cinematic shelf's dark glass. Can
          also be set with "dock_glass": true in a theme's config.json. -->

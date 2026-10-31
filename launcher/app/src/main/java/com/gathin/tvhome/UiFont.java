@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Typeface;
 import android.util.TypedValue;
+import androidx.core.content.res.ResourcesCompat;
 
 /**
  * The typeface behind one of the font_* strings in res/values/fonts.xml, for views built in code. The string
@@ -17,7 +18,12 @@ final class UiFont {
         TypedValue value = new TypedValue();
         res.getValue(fontString, value, true);
         String name = String.valueOf(value.string);
-        if (name.startsWith("res/")) return res.getFont(value.resourceId);
+        if (name.startsWith("res/")) {
+            Typeface typeface = ResourcesCompat.getFont(context, value.resourceId);
+            return typeface != null
+                    ? typeface
+                    : Typeface.create("sans-serif", Typeface.NORMAL);
+        }
         return Typeface.create(name, Typeface.NORMAL);
     }
 }

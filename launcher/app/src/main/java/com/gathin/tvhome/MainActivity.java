@@ -1,5 +1,7 @@
 package com.gathin.tvhome;
 
+import android.annotation.TargetApi;
+
 import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
@@ -14,7 +16,6 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ResolveInfo;
-import android.content.pm.ChangedPackages;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
@@ -304,7 +305,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private boolean resumed;
     /** Rebuild the tiles on the way back to Home only when apps changed meanwhile (TileRefresh). */
     private final TileRefresh tileRefresh = new TileRefresh();
-    /** PackageManager's change counter at the last rebuild, to catch a package broadcast that never arrived. */
+    /** PackageManager change counter on API 26+; older systems rely on package broadcasts. */
     private int packageSequence;
     /** The Inputs or Module cards dropdown while one is open, so onPause can close it. */
     private PopupWindow openPopup;
@@ -490,7 +491,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         ambient = findViewById(R.id.ambient);
         // The glow is one bitmap, so its alpha can be applied while drawing it. Otherwise every frame of
         // a fade renders it into a full-screen offscreen buffer first.
-        ambient.forceHasOverlappingRendering(false);
+        if (Build.VERSION.SDK_INT >= 24) {
+            ambient.forceHasOverlappingRendering(false);
+        }
         ambientGlow = cfg.ambientGlow;
         appGlow = cfg.appGlow;
         if (!ambientGlow) ambient.setVisibility(View.GONE);
@@ -498,7 +501,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         hero = findViewById(R.id.hero);
         // The hero is now a group (name, and the cinematic lines): without this every fade of the default
         // shelf would render it through an offscreen buffer first, as the glow above notes.
-        hero.forceHasOverlappingRendering(false);
+        if (Build.VERSION.SDK_INT >= 24) {
+            hero.forceHasOverlappingRendering(false);
+        }
         heroMeta = findViewById(R.id.heroMeta);
         heroDots = findViewById(R.id.heroDots);
         heroArt = findViewById(R.id.heroArt);
@@ -919,9 +924,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
         TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
-        if (tim != null) tim.registerCallback(inputCallback, handler);
+        registerTvInputCallback(tim);
         if (cm != null) {
-            cm.registerDefaultNetworkCallback(networkCallback);
+            if (Build.VERSION.SDK_INT >= 24) {
+                cm.registerDefaultNetworkCallback(networkCallback);
+            } else {
+                NetworkRequest request = new NetworkRequest.Builder()
+                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        .build();
+                cm.registerNetworkCallback(request, networkCallback);
+            }
             cm.registerNetworkCallback(new NetworkRequest.Builder()
                     .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
                     .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
@@ -1173,15 +1185,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         }
     }
 
-    /** True when PackageManager reports apps changed since the last rebuild (one binder call). */
+    /** API 26+ checks PackageManager; older systems rely on package broadcasts. */
     private boolean packagesChangedSinceRebuild() {
-        ChangedPackages changed = getPackageManager().getChangedPackages(packageSequence);
-        return changed != null && !changed.getPackageNames().isEmpty();
+        return PackageChangeTracker.changedSince(getPackageManager(), packageSequence);
     }
 
     private int currentPackageSequence(int since) {
-        ChangedPackages changed = getPackageManager().getChangedPackages(since);
-        return changed != null ? changed.getSequenceNumber() : since;
+        return PackageChangeTracker.currentSequence(getPackageManager(), since);
     }
 
     /**
@@ -1322,7 +1332,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         wallpaperPlayer.close();
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
         TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
-        if (tim != null) tim.unregisterCallback(inputCallback);
+        unregisterTvInputCallback(tim);
         if (cm != null) {
             cm.unregisterNetworkCallback(networkCallback);
             cm.unregisterNetworkCallback(vpnCallback);
@@ -1920,7 +1930,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         heroDots.setVisibility(heroDotsShown ? View.VISIBLE : View.GONE);
         heroArt.setVisibility(heroArtAlpha > 0f ? View.VISIBLE : View.GONE);
         // One stretched bitmap: apply its alpha while drawing instead of through an offscreen buffer.
-        heroArt.forceHasOverlappingRendering(false);
+        if (Build.VERSION.SDK_INT >= 24) {
+            heroArt.forceHasOverlappingRendering(false);
+        }
         if (scrimPercent <= 0) return;   // cinematic_scrim 0: no scrim at all
         View scrim = findViewById(R.id.heroScrim);
         Drawable shade = scrimDrawable();
@@ -2212,6 +2224,23 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         line.append(part);
     }
 
+    /** The primary locale, with an Android 6.0 fallback. */
+    private Locale primaryLocale() {
+        android.content.res.Configuration configuration = getResources().getConfiguration();
+        if (Build.VERSION.SDK_INT >= 24) {
+            return Api24Locale.primary(configuration);
+        }
+        Locale locale = configuration.locale;
+        return locale != null ? locale : Locale.getDefault();
+    }
+
+    @TargetApi(24)
+    private static final class Api24Locale {
+        static Locale primary(android.content.res.Configuration configuration) {
+            return configuration.getLocales().get(0);
+        }
+    }
+
     private String readStatsLine() {
         int cpu = cpuPercent();
         if (cpu < 0) {
@@ -2231,7 +2260,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (mem != null) appendStat(line, getString(R.string.stats_memory, mem[0], mem[1]));
         String free = formatGb(getResources(), Environment.getDataDirectory().getFreeSpace());
         if (!free.isEmpty()) appendStat(line, getString(R.string.stats_storage, free));
-        return StatsText.forLocale(line.toString(), getResources().getConfiguration().getLocales().get(0));
+        return StatsText.forLocale(line.toString(), primaryLocale());
     }
 
     // -1: need another sample. -2: this source cannot be read (Android 9 hides /proc/stat from apps).
@@ -2651,7 +2680,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // Spain (es-ES) and Catalan: "Buenas tardes" into the evening; "Buenas noches" from 21.
         // Latin American Spanish (es-MX, es-AR, …) keeps the default hours: evening strings are also
         // «Buenas noches», and there «Buenas noches» from ~17 matches local use better than Spain's 21.
-        Locale locale = getResources().getConfiguration().getLocales().get(0);
+        Locale locale = primaryLocale();
         String lang = locale.getLanguage();
         String country = locale.getCountry();
         if ("in".equals(lang) || "id".equals(lang)) {
@@ -3075,7 +3104,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private void openVpnPill() {
         Intent i = vpnAppIntent();
         if (i != null || !appLibraryEnabled) {
-            open(i != null ? i : systemIntent(Settings.ACTION_VPN_SETTINGS));
+            String vpnSettingsAction = Build.VERSION.SDK_INT >= 24
+                    ? "android.settings.VPN_SETTINGS"
+                    : Settings.ACTION_WIRELESS_SETTINGS;
+            open(i != null ? i : systemIntent(vpnSettingsAction));
             return;
         }
         onLibraryRequested();
@@ -3125,6 +3157,75 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return SystemSettings.intent(this, standardAction);
     }
 
+    /** API 23 has no per-user TV input visibility API; treat inputs as visible. */
+    private boolean isTvInputHidden(TvInputInfo info) {
+        if (Build.VERSION.SDK_INT >= 24) {
+            return Api24TvInput.isHidden(this, info);
+        }
+        return false;
+    }
+
+    /** API 23 has no custom TV input labels; use the standard framework label. */
+    private CharSequence customTvInputLabel(TvInputInfo info) {
+        if (Build.VERSION.SDK_INT >= 24) {
+            return Api24TvInput.customLabel(this, info);
+        }
+        return null;
+    }
+
+    @TargetApi(24)
+    private static final class Api24TvInput {
+        static boolean isHidden(Context context, TvInputInfo info) {
+            return info.isHidden(context);
+        }
+
+        static CharSequence customLabel(Context context, TvInputInfo info) {
+            return info.loadCustomLabel(context);
+        }
+    }
+
+    /**
+     * Safely reads Android TV inputs.
+     * Some vendor firmware exposes TvInputManager while its internal Binder service is absent.
+     */
+    private List<TvInputInfo> safeTvInputList(TvInputManager manager) {
+        if (manager == null) return Collections.emptyList();
+        try {
+            List<TvInputInfo> inputs = manager.getTvInputList();
+            return inputs != null ? inputs : Collections.emptyList();
+        } catch (RuntimeException ignored) {
+            return Collections.emptyList();
+        }
+    }
+
+    /** Returns -1 when the vendor TV Input service cannot report an input state. */
+    private int safeTvInputState(TvInputManager manager, String inputId) {
+        if (manager == null || inputId == null) return -1;
+        try {
+            return manager.getInputState(inputId);
+        } catch (RuntimeException ignored) {
+            return -1;
+        }
+    }
+
+    private void registerTvInputCallback(TvInputManager manager) {
+        if (manager == null) return;
+        try {
+            manager.registerCallback(inputCallback, handler);
+        } catch (RuntimeException ignored) {
+            // TV Input is optional; a missing vendor Binder must not prevent the launcher starting.
+        }
+    }
+
+    private void unregisterTvInputCallback(TvInputManager manager) {
+        if (manager == null) return;
+        try {
+            manager.unregisterCallback(inputCallback);
+        } catch (RuntimeException ignored) {
+            // It may never have been registered on this firmware.
+        }
+    }
+
     /** Hides the Inputs pill when it would have nothing to list: streaming boxes have no HDMI-in, AV or tuner. */
     private void updateInputsButton() {
         if (!showInputsPill) {
@@ -3134,10 +3235,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         boolean any = liveTvIntent() != null || !sourcePanelService.isEmpty()
                 || (coocaaSources && !CoocaaSources.list(this).isEmpty());
         TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
-        if (!any && tim != null) {
-            for (TvInputInfo info : tim.getTvInputList()) {
+        if (!any) {
+            for (TvInputInfo info : safeTvInputList(tim)) {
                 // Inputs hidden in Settings > Inputs are left out of the menu, so they don't count here either.
-                if (info.isPassthroughInput() && !info.isHidden(this)) {
+                if (info.isPassthroughInput() && !isTvInputHidden(info)) {
                     any = true;
                     break;
                 }
@@ -3331,8 +3432,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         String tunerId = null;
         boolean tunerIsHw = false;
         boolean tunerIsAnalog = false;
-        if (tim != null) {
-            List<TvInputInfo> inputs = new ArrayList<>(tim.getTvInputList());
+        List<TvInputInfo> availableInputs = safeTvInputList(tim);
+        if (!availableInputs.isEmpty()) {
+            List<TvInputInfo> inputs = new ArrayList<>(availableInputs);
             // HDMI ports first in port order, then AV and the rest.
             Collections.sort(inputs, (a, b) -> {
                 boolean ha = a.getType() == TvInputInfo.TYPE_HDMI, hb = b.getType() == TvInputInfo.TYPE_HDMI;
@@ -3349,7 +3451,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             for (TvInputInfo info : inputs) {
                 String parent = info.getParentId();
                 if (parent == null || !inputIds.contains(parent)) continue;
-                if (!info.isPassthroughInput() || info.isHidden(this)) continue;
+                if (!info.isPassthroughInput() || isTvInputHidden(info)) continue;
                 List<TvInputInfo> onPort = cecDevices.get(parent);
                 if (onPort == null) cecDevices.put(parent, onPort = new ArrayList<>());
                 onPort.add(info);
@@ -3361,7 +3463,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 if (!info.isPassthroughInput() || info.getType() != TvInputInfo.TYPE_HDMI) continue;
                 if (info.getParentId() != null && inputIds.contains(info.getParentId())) continue;
                 hdmiPorts++;
-                if (tim.getInputState(info.getId()) == TvInputManager.INPUT_STATE_CONNECTED) hdmiConnected++;
+                if (safeTvInputState(tim, info.getId()) == TvInputManager.INPUT_STATE_CONNECTED) hdmiConnected++;
             }
             boolean hdmiStateBogus = hdmiPorts > 1 && hdmiConnected == hdmiPorts;
             for (TvInputInfo info : inputs) {
@@ -3387,7 +3489,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                     }
                 }
                 // Inputs hidden in the TV's Settings > Inputs stay out of the menu too.
-                if (!info.isPassthroughInput() || info.isHidden(this)) continue;
+                if (!info.isPassthroughInput() || isTvInputHidden(info)) continue;
                 // input_sources can leave out ports the board reports but the set does not have ("HW8=-").
                 if (Integer.valueOf(-1).equals(mappedSource(info.getId()))) continue;
                 // A CEC device's row is added with its port, below.
@@ -3396,7 +3498,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 String label = l == null ? info.getId() : l.toString();
                 boolean hdmi = info.getType() == TvInputInfo.TYPE_HDMI;
                 if (hdmi && !label.toUpperCase(Locale.ROOT).contains("HDMI")) label = "HDMI " + label;
-                CharSequence custom = InputNames.tidy(info.loadCustomLabel(this));
+                CharSequence custom = InputNames.tidy(customTvInputLabel(info));
                 boolean named = custom != null && custom.length() > 0 && !custom.toString().equals(label);
                 if (!hdmi && rows.getChildCount() > 0 && !sawNonHdmi) {
                     View line = addSeparator(rows);
@@ -3409,11 +3511,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                     // Settings > Inputs), then the port. Opening the device's input also makes it the CEC
                     // active source, which wakes it.
                     for (TvInputInfo device : devices) {
-                        CharSequence name = InputNames.tidy(device.loadCustomLabel(this));
+                        CharSequence name = InputNames.tidy(customTvInputLabel(device));
                         if (name == null || name.length() == 0) name = named ? custom : device.loadLabel(this);
                         String deviceLabel = name == null || name.length() == 0 ? label : name + " \u00B7 " + label;
                         final String deviceId = device.getId();
-                        int state = hdmiStateBogus ? -1 : tim.getInputState(deviceId);
+                        int state = hdmiStateBogus ? -1 : safeTvInputState(tim, deviceId);
                         View row = addInputRow(rows, popup, R.drawable.ic_input, deviceLabel, state, () -> openInput(deviceId));
                         if (connectedOnly && InputFold.folds(true, state)) fold(row, folded);
                     }
@@ -3424,7 +3526,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 final String id = info.getId();
                 // Analog AV jacks have no hotplug detection, and some TVs report them as always connected
                 // (TCL Smart TV Pro G03 says "Connected" with nothing plugged in), so AV rows show no state.
-                int state = !hdmi || hdmiStateBogus ? -1 : tim.getInputState(id);
+                int state = !hdmi || hdmiStateBogus ? -1 : safeTvInputState(tim, id);
                 View row = addInputRow(rows, popup, hdmi ? R.drawable.ic_input : R.drawable.ic_av, label, state,
                         () -> openInput(id));
                 if (connectedOnly && InputFold.folds(hdmi, state)) fold(row, folded);

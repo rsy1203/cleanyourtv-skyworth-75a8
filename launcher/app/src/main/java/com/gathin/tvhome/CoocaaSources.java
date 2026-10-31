@@ -10,13 +10,13 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Inputs on Coocaa OS (Skyworth) TVs, which register nothing with TvInputManager. com.skyworth.tv lists
- * the sources its own Source panel shows (HDMI 1, HDMI 2, RF, AV), and switches to one and brings up its
- * player, as picking it in that panel does.
+ * Inputs on Coocaa OS (Skyworth) TVs, which do not expose the standard TvInputManager service.
+ * The Skyworth TV SDK provider exposes the sources shown by the native Source panel and accepts
+ * a source-switch method call; see the device-specific notes in FORK.md.
  */
 final class CoocaaSources {
 
-    private static final Uri LIST = Uri.parse("content://com.skyworth.tv.provider/system/source_list");
+    private static final Uri LIST = Uri.parse("content://com.skyworth.tv.sdk.provider/system/source_list");
     private static final Uri METHOD = Uri.parse("content://com.skyworth.tv.sdk.provider/method");
     private static final String[] COLUMNS = {"sourceName", "sourceIndex", "displayName"};
 

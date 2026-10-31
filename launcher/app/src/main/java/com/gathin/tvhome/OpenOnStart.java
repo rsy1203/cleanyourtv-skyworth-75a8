@@ -6,6 +6,8 @@ import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.os.Build;
+import android.annotation.SuppressLint;
 import android.provider.Settings;
 
 /** open_on_start_choice: the app Home opens once after each boot, picked in Launcher settings. */
@@ -25,7 +27,9 @@ final class OpenOnStart {
         return boot >= 0 && boot != handledBoot && pkg != null && !pkg.isEmpty() && !pkg.equals(self);
     }
 
+    @SuppressLint("InlinedApi")
     static int boot(Context ctx) {
+        if (Build.VERSION.SDK_INT < 24) return -1;
         return Settings.Global.getInt(ctx.getContentResolver(), Settings.Global.BOOT_COUNT, -1);
     }
 

@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.PowerManager;
 import android.os.UserManager;
 import android.provider.Settings;
@@ -35,6 +36,8 @@ final class GuardKeep {
     }
 
     static boolean offInStandby(Context context) {
+        // API 23 has no AccessibilityService.disableSelf(); keep the service active there.
+        if (Build.VERSION.SDK_INT < 24) return false;
         UserManager users = context.getSystemService(UserManager.class);
         if (users != null && !users.isUserUnlocked()) return false;
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_OFF, false);
@@ -85,6 +88,7 @@ final class GuardKeep {
 
     /** Drops the service from the list and puts it back on the next SCREEN_ON. The process has to stay up. */
     static void stepOut(AccessibilityService service) {
+        if (Build.VERSION.SDK_INT < 24) return;
         watchScreenOn(service.getApplicationContext());
         service.disableSelf();
     }

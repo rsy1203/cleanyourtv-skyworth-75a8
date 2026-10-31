@@ -1,5 +1,6 @@
 package com.gathin.tvhome;
 
+import android.annotation.SuppressLint;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.ActivityNotFoundException;
@@ -94,10 +95,15 @@ public class HomeKeyService extends AccessibilityService {
     private static HomeKeyService running;
 
     @Override
+    @SuppressLint("InlinedApi")
     protected void onServiceConnected() {
         super.onServiceConnected();
         running = this;
         settingsScancodes = getResources().getIntArray(R.array.settings_key_scancodes);
+        if (Build.VERSION.SDK_INT < 24) {
+            loadConfig();
+            return;
+        }
         // The service is directBootAware: Android 11 skips a service that is not while the user is still
         // locked at boot, writes accessibility_enabled=0 and, on TCL G03 firmware, never binds it after the
         // unlock. Config.load reads credential-protected storage, so wait for the unlock before reading it.
@@ -203,7 +209,7 @@ public class HomeKeyService extends AccessibilityService {
         stockHomePackage = config.stockHomeRedirect;
         if (!config.stockHomeRedirect.isEmpty()) {
             Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).setPackage(config.stockHomeRedirect);
-            for (ResolveInfo ri : getPackageManager().queryIntentActivities(home, PackageManager.MATCH_DISABLED_COMPONENTS)) {
+            for (ResolveInfo ri : getPackageManager().queryIntentActivities(home, PackageManager.GET_DISABLED_COMPONENTS)) {
                 stockHome.add(ri.activityInfo.name);
             }
         }
@@ -379,7 +385,7 @@ public class HomeKeyService extends AccessibilityService {
      *  front comes back and sends a window event, and onAccessibilityEvent covers it only if it is the stock home.
      *  An HDMI input or an app that the TV resumed at boot is left alone. */
     private void probeAtBoot() {
-        int boot = Settings.Global.getInt(getContentResolver(), Settings.Global.BOOT_COUNT, -1);
+        int boot = OpenOnStart.boot(this);
         SharedPreferences prefs = getSharedPreferences("boot", MODE_PRIVATE);
         if (!firstBindAfterBoot(boot, prefs.getInt("probe_boot", -1), SystemClock.elapsedRealtime())) return;
         prefs.edit().putInt("probe_boot", boot).apply();

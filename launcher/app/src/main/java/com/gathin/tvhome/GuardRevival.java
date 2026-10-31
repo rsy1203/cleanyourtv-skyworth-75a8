@@ -1,9 +1,11 @@
 package com.gathin.tvhome;
 
+import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.os.Build;
 import android.os.UserManager;
 import android.service.notification.NotificationListenerService;
 
@@ -18,7 +20,12 @@ public class GuardRevival extends NotificationListenerService {
     private BroadcastReceiver unlocked;
 
     @Override
+    @SuppressLint("InlinedApi")
     public void onListenerConnected() {
+        if (Build.VERSION.SDK_INT < 24) {
+            GuardKeep.ensureHomeKey(this);
+            return;
+        }
         UserManager users = getSystemService(UserManager.class);
         if (users != null && !users.isUserUnlocked()) {
             if (unlocked != null) return;
